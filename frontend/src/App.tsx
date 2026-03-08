@@ -1,14 +1,21 @@
-function App() {
-  return (
-    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#0a0a0f' }}>
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-2" style={{ color: '#00d4aa' }}>
-          EnergyPulse
-        </h1>
-        <p className="text-gray-400">Full-stack energy data platform</p>
-      </div>
-    </div>
-  )
-}
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import Layout from "./components/Layout";
+import Dashboard from "./pages/Dashboard";
+import Alerts from "./pages/Alerts";
+import About from "./pages/About";
 
-export default App
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/alerts" element={<Alerts />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}

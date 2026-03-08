@@ -49,6 +49,11 @@ class Alert(Base, TimestampMixin):
     # Flipped to True once email/Slack has been sent so we don't re-notify
     notified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Timestamp of first successful delivery (email or Slack)
+    notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
     # ------------------------------------------------------------------
     # Relationships
     # ------------------------------------------------------------------

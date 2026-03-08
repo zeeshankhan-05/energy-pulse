@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.anomalies import router as anomalies_router
 from app.api.data import router as data_router
+from app.api.jobs import router as jobs_router
 
 app = FastAPI(title="EnergyPulse API", version="0.1.0")
 
@@ -14,6 +16,8 @@ app.add_middleware(
 )
 
 app.include_router(data_router)
+app.include_router(anomalies_router)
+app.include_router(jobs_router)
 
 
 @app.get("/health")
