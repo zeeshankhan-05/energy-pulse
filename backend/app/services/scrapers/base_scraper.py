@@ -1,29 +1,35 @@
 """Abstract base class for all EnergyPulse web scrapers.
 
 Every state scraper inherits:
-  - _browser_context()  – shared Playwright Chromium context manager
-  - _httpx_fallback()   – realistic-header HTTP fetch used when Playwright is
-                          blocked (403 / Cloudflare / JS-challenge sites)
-  - normalize_price_record() – guarantees the returned dict always matches the
-                               price_snapshots DB schema exactly
-  - run_with_retry()    – 3-attempt exponential backoff wrapper
+  - _fetch_html()    – async httpx.AsyncClient GET with realistic browser headers
+  - _fetch_json()    – async httpx.AsyncClient GET returning parsed JSON
+  - _fetch_eia_electricity() – EIA API fallback for residential state prices
+  - normalize_price_record() – guarantees the returned dict matches
+                               the price_snapshots DB schema exactly
+  - run_with_retry() – async retry wrapper with exponential back-off
+  - _parse_period()  – safe date-string → "YYYY-MM" converter
+
+PLAYWRIGHT NOTE:
+  Playwright Chromium is commented out in requirements.txt and Dockerfile.
+  It works fine on Linux/EC2 servers; the browser download CDN blocks
+  Mac ARM environments.  Uncomment those lines for production deployment.
+  For local development and testing we use httpx + BeautifulSoup instead.
 """
 
 import abc
+import asyncio
 import logging
 import random
-import time
-from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Coroutine
 
 import httpx
-from playwright.sync_api import BrowserContext, sync_playwright
+
+from app.config import settings
 
 # ---------------------------------------------------------------------------
-# Rotating user agents (5 real Chrome desktop strings)
+# Five rotating Chrome user-agent strings
 # ---------------------------------------------------------------------------
-
 USER_AGENTS: list[str] = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -37,19 +43,14 @@ USER_AGENTS: list[str] = [
     "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
 ]
 
-_CHROMIUM_ARGS: list[str] = [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-blink-features=AutomationControlled",
-]
+# EIA v2 residential electricity endpoint (proven working)
+_EIA_ELEC_URL = "https://api.eia.gov/v2/electricity/retail-sales/data/"
 
 
 class BaseScraper(abc.ABC):
     """All state scrapers extend this class."""
 
     def __init__(self) -> None:
-        # Logger name == concrete subclass name (ILScraper, TXScraper, …)
         self.logger = logging.getLogger(self.__class__.__name__)
         self._user_agent: str = random.choice(USER_AGENTS)
 
@@ -58,46 +59,15 @@ class BaseScraper(abc.ABC):
     # ------------------------------------------------------------------
 
     @abc.abstractmethod
-    def scrape(self) -> list[dict]:
-        """Scrape target site and return a list of normalized price records."""
+    async def scrape(self) -> list[dict]:
+        """Scrape target site and return normalised price records."""
 
     # ------------------------------------------------------------------
-    # Shared Playwright context manager
+    # HTTP helpers
     # ------------------------------------------------------------------
 
-    @contextmanager
-    def _browser_context(self):
-        """Yield a Playwright BrowserContext using a headless Chromium instance."""
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(
-                headless=True,
-                args=_CHROMIUM_ARGS,
-            )
-            context: BrowserContext = browser.new_context(
-                user_agent=self._user_agent,
-                viewport={"width": 1280, "height": 900},
-                locale="en-US",
-                extra_http_headers={
-                    "Accept-Language": "en-US,en;q=0.9",
-                },
-            )
-            try:
-                yield context
-            finally:
-                context.close()
-                browser.close()
-
-    # ------------------------------------------------------------------
-    # httpx fallback (used when Playwright is blocked)
-    # ------------------------------------------------------------------
-
-    def _httpx_fallback(self, url: str, **kwargs: Any) -> httpx.Response:
-        """Fetch *url* with httpx using realistic browser-like headers.
-
-        Use this when the target site returns 403 to Playwright or applies
-        a JS challenge that can't be solved headlessly.
-        """
-        headers = {
+    def _browser_headers(self) -> dict[str, str]:
+        return {
             "User-Agent": self._user_agent,
             "Accept": (
                 "text/html,application/xhtml+xml,application/xml;"
@@ -112,8 +82,83 @@ class BaseScraper(abc.ABC):
             "Sec-Fetch-Site": "none",
             "Cache-Control": "max-age=0",
         }
-        with httpx.Client(follow_redirects=True, timeout=30.0) as client:
-            return client.get(url, headers=headers, **kwargs)
+
+    async def _fetch_html(self, url: str, **kwargs: Any) -> str:
+        """GET *url* with httpx.AsyncClient; returns response text."""
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=25.0
+        ) as client:
+            resp = await client.get(url, headers=self._browser_headers(), **kwargs)
+            resp.raise_for_status()
+            return resp.text
+
+    async def _fetch_json(self, url: str, **kwargs: Any) -> Any:
+        """GET *url* expecting a JSON body; returns parsed object."""
+        headers = {
+            **self._browser_headers(),
+            "Accept": "application/json, text/plain, */*",
+        }
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=25.0
+        ) as client:
+            resp = await client.get(url, headers=headers, **kwargs)
+            resp.raise_for_status()
+            return resp.json()
+
+    # ------------------------------------------------------------------
+    # EIA API fallback (used when primary government source is unavailable)
+    # ------------------------------------------------------------------
+
+    async def _fetch_eia_electricity(
+        self, state_code: str, source_label: str, months: int = 12
+    ) -> list[dict]:
+        """Fetch monthly residential electricity prices from EIA API v2.
+
+        Args:
+            state_code:   Two-letter state code, e.g. "IL"
+            source_label: Value to set in the 'source' field of each record
+                          (e.g. "IL_ICC_EIA_FALLBACK")
+            months:       Number of monthly records to fetch (default 12)
+
+        Returns:
+            List of normalised price records with source=*source_label*.
+        """
+        params = [
+            ("api_key", settings.eia_api_key),
+            ("frequency", "monthly"),
+            ("data[]", "price"),
+            ("facets[sectorid][]", "RES"),
+            ("facets[stateid][]", state_code.upper()),
+            ("sort[0][column]", "period"),
+            ("sort[0][direction]", "desc"),
+            ("length", str(months)),
+        ]
+        try:
+            data = await self._fetch_json(_EIA_ELEC_URL, params=params)
+        except httpx.HTTPStatusError as exc:
+            self.logger.error("EIA API returned %s for %s", exc.response.status_code, state_code)
+            return []
+
+        rows = data.get("response", {}).get("data", [])
+        self.logger.info(
+            "EIA fallback for %s: %d records (source=%s)", state_code, len(rows), source_label
+        )
+        return [
+            self.normalize_price_record(
+                source=source_label,
+                region=item.get("stateid", state_code).upper(),
+                fuel_type="electricity",
+                price=_to_float(item.get("price")),
+                unit=item.get("price-units", "cents per kilowatt-hour"),
+                period=item["period"],
+                raw={
+                    "via": "EIA_API_v2",
+                    "note": "primary source unavailable; using EIA as fallback",
+                    "sector": "residential",
+                },
+            )
+            for item in rows
+        ]
 
     # ------------------------------------------------------------------
     # Schema normalisation helper
@@ -129,17 +174,7 @@ class BaseScraper(abc.ABC):
         period: str,
         raw: Any = None,
     ) -> dict:
-        """Return a dict that matches the price_snapshots table schema exactly.
-
-        Args:
-            source:    Data publisher, e.g. "IL_ICC", "TX_PUCT"
-            region:    Two-letter state code, e.g. "IL"
-            fuel_type: "electricity" or "natural_gas"
-            price:     Numeric rate value, or None if unavailable
-            unit:      Human-readable unit, e.g. "cents/kWh", "$/MMBtu"
-            period:    Month string in "YYYY-MM" format
-            raw:       Any serialisable dict/list for the JSONB raw_data column
-        """
+        """Return a dict matching the price_snapshots table schema exactly."""
         return {
             "source": source,
             "region": region,
@@ -151,24 +186,23 @@ class BaseScraper(abc.ABC):
         }
 
     # ------------------------------------------------------------------
-    # Retry wrapper
+    # Async retry wrapper
     # ------------------------------------------------------------------
 
-    def run_with_retry(
+    async def run_with_retry(
         self,
-        fn: Callable[[], Any],
+        coro_fn: Callable[[], Coroutine],
         retries: int = 3,
         delay: int = 5,
     ) -> Any:
-        """Call *fn* up to *retries* times with exponential back-off.
+        """Await *coro_fn()* up to *retries* times with exponential back-off.
 
-        Back-off schedule: delay * 2^attempt seconds between attempts.
-        Raises the last exception after all attempts are exhausted.
+        Back-off schedule: delay * 2^attempt seconds between retries.
         """
         last_exc: Exception = RuntimeError("No attempts made")
         for attempt in range(retries):
             try:
-                return fn()
+                return await coro_fn()
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 if attempt < retries - 1:
@@ -180,25 +214,20 @@ class BaseScraper(abc.ABC):
                         exc,
                         backoff,
                     )
-                    time.sleep(backoff)
+                    await asyncio.sleep(backoff)
                 else:
                     self.logger.error(
-                        "All %d attempts exhausted: %s",
-                        retries,
-                        exc,
+                        "All %d attempts exhausted: %s", retries, exc
                     )
         raise last_exc
 
     # ------------------------------------------------------------------
-    # Internal utility
+    # Date parsing utility
     # ------------------------------------------------------------------
 
     @staticmethod
     def _parse_period(date_str: str) -> str:
-        """Convert a date string to 'YYYY-MM' format.
-
-        Tries common US date formats; falls back to the current month.
-        """
+        """Convert a date string to 'YYYY-MM' format; falls back to current month."""
         for fmt in (
             "%m/%d/%Y", "%Y-%m-%d", "%B %d, %Y", "%b %d, %Y",
             "%B %Y",    "%b %Y",    "%m-%d-%Y",   "%d/%m/%Y",
@@ -208,3 +237,16 @@ class BaseScraper(abc.ABC):
             except ValueError:
                 continue
         return datetime.now().strftime("%Y-%m")
+
+
+# ---------------------------------------------------------------------------
+# Module-level helper
+# ---------------------------------------------------------------------------
+
+def _to_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

@@ -7,7 +7,8 @@ celery==5.4.0
 redis==5.0.4
 python-dotenv==1.0.1
 pydantic-settings==2.2.1
-playwright==1.44.0
+# playwright==1.44.0  # uncomment for production deployment on EC2/Linux — works
+#                     # fine headlessly there; Mac ARM CDN blocks browser download
 beautifulsoup4==4.12.3
 lxml==5.2.2
 requests==2.32.3

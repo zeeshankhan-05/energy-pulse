@@ -10,8 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Chromium and its system dependencies for Playwright web scraping
-RUN playwright install chromium --with-deps
+# Playwright Chromium install — works on Linux/EC2 but fails on Mac ARM due to
+# CDN restrictions.  Uncomment for production deployment on EC2/Docker Linux hosts.
+# RUN playwright install chromium --with-deps
 
 COPY . .
 

@@ -1,11 +1,11 @@
-"""Data ingestion: pull EIA prices and upsert into price_snapshots."""
+"""Data ingestion: pull EIA prices and persist via the normalization pipeline."""
 
 import logging
 
 from sqlalchemy.orm import Session
 
-from app.models.price_snapshot import PriceSnapshot
 from app.services.eia_client import DEFAULT_STATES, EIAClient
+from app.services.normalization import normalize_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -18,57 +18,53 @@ def ingest_eia_data(
     states: list[str] | None = None,
     client: EIAClient | None = None,
 ) -> int:
-    """Fetch EIA prices for *states* and upsert into price_snapshots.
+    """Fetch EIA prices for *states* and persist them via normalize_pipeline.
 
     EIAClient returns records with keys: period, state, price, units, fuel_type.
-    These are mapped to the PriceSnapshot schema (region, unit, source, raw_data).
+    These are remapped to the pipeline schema (region, unit, source) before being
+    fed into normalize_pipeline, which handles validation, unit/period normalization,
+    deduplication, and bulk insert.
 
-    Returns the count of **new** records inserted; existing rows (matched on
-    source + region + fuel_type + period) are silently skipped.
+    Returns the count of **new** records inserted.
     """
     if client is None:
         client = EIAClient()
     if states is None:
         states = DEFAULT_STATES
 
-    records = client.fetch_all_states(states)
-    new_count = 0
+    raw = client.fetch_all_states(states)
 
-    for rec in records:
+    # Remap EIAClient field names → pipeline schema field names
+    pipeline_records: list[dict] = []
+    for rec in raw:
+        region = rec.get("state")
         period = rec.get("period")
-        region = rec.get("state")        # EIAClient uses "state" key
         fuel_type = rec.get("fuel_type")
 
         if not (period and region and fuel_type):
-            logger.warning("Skipping incomplete record: %s", rec)
+            logger.warning("Skipping incomplete EIA record: %s", rec)
             continue
 
-        exists = (
-            db.query(PriceSnapshot)
-            .filter_by(
-                source=_EIA_SOURCE,
-                region=region,
-                fuel_type=fuel_type,
-                period=period,
-            )
-            .first()
-        )
-        if exists:
-            continue
+        pipeline_records.append({
+            "source": _EIA_SOURCE,
+            "region": region,
+            "fuel_type": fuel_type,
+            "price": rec.get("price"),
+            "unit": rec.get("units", ""),
+            "period": period,
+            "raw_data": None,
+        })
 
-        db.add(
-            PriceSnapshot(
-                source=_EIA_SOURCE,
-                region=region,
-                fuel_type=fuel_type,
-                period=period,
-                price=rec.get("price"),
-                unit=rec.get("units", ""),  # EIAClient returns "units" key
-                raw_data=None,              # raw blob not captured at this layer
-            )
-        )
-        new_count += 1
+    if not pipeline_records:
+        logger.info("ingest_eia_data: no records to process")
+        return 0
 
-    db.commit()
-    logger.info("ingest_eia_data: inserted %d new records", new_count)
-    return new_count
+    summary = normalize_pipeline(pipeline_records, db)
+    logger.info(
+        "ingest_eia_data: total=%d inserted=%d rejected=%d duplicates=%d",
+        summary["total_received"],
+        summary["inserted"],
+        summary["rejected"],
+        summary["duplicates"],
+    )
+    return summary["inserted"]
