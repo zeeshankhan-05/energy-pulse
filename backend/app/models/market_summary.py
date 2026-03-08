@@ -1,21 +1,12 @@
-"""MarketSummary – AI-generated narrative stored with a content hash."""
-
 import uuid
-from datetime import datetime
-
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Uuid
 
-from app.models.base import Base, FuelType, TimestampMixin, fuel_type_col
-
+from app.models.base import Base, TimestampMixin
 
 class MarketSummary(Base, TimestampMixin):
-    """Cached LLM summary for a region/fuel_type.
-
-    ``data_hash`` (MD5 of the input records) lets callers skip regeneration
-    when the underlying data has not changed since the last run.
-    """
+    """Stores AI-generated market summaries for a region based on pricing and anomaly data."""
 
     __tablename__ = "market_summaries"
 
@@ -25,21 +16,15 @@ class MarketSummary(Base, TimestampMixin):
         default=uuid.uuid4,
     )
 
-    region: Mapped[str] = mapped_column(String(10), nullable=False)
+    # Two-letter state code, e.g. "IL"
+    region: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
 
-    fuel_type: Mapped[FuelType] = mapped_column(fuel_type_col, nullable=False)
-
+    # The actual summarized narrative text
     summary_text: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # MD5 of the serialised input data; used to detect stale cache entries
-    data_hash: Mapped[str] = mapped_column(String(32), nullable=False)
-
-    generated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    # MD5 hash of the factual inputs used to generate this summary.
+    # Used to short-circuit redundant LLM calls when data hasn't changed.
+    data_hash: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
 
     def __repr__(self) -> str:
-        return (
-            f"<MarketSummary {self.region}/{self.fuel_type} "
-            f"generated_at={self.generated_at}>"
-        )
+        return f"<MarketSummary {self.region} hash={self.data_hash}>"

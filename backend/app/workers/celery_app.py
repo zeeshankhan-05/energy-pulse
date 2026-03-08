@@ -15,6 +15,7 @@ celery_app = Celery(
     "energypulse",
     broker=settings.redis_url,
     backend=settings.redis_url,
+    include=["app.workers.tasks", "app.tasks.summary_tasks"]
 )
 celery_app.conf.task_serializer = "json"
 celery_app.conf.result_serializer = "json"
@@ -31,6 +32,10 @@ celery_app.conf.beat_schedule = {
     "deliver-alerts": {
         "task": "tasks.deliver_alerts_task",
         "schedule": crontab(minute="*/15"),  # every 15 minutes
+    },
+    "refresh-summaries": {
+        "task": "app.tasks.summary_tasks.refresh_all_summaries",
+        "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
     },
 }
 celery_app.conf.timezone = "UTC"

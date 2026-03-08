@@ -1,12 +1,26 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import redis.asyncio as redis
+
+from app.config import settings
 
 from app.api.anomalies import router as anomalies_router
 from app.api.data import router as data_router
 from app.api.jobs import router as jobs_router
-from app.api.summary import router as summary_router
+from app.api.summaries import router as summary_router
 
-app = FastAPI(title="EnergyPulse API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize the global Redis connection pool for dependency injection
+    redis_client = redis.from_url(settings.redis_url, decode_responses=False)
+    app.state.redis = redis_client
+    yield
+    # Cleanup on shutdown
+    await redis_client.aclose()
+
+app = FastAPI(title="EnergyPulse API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
