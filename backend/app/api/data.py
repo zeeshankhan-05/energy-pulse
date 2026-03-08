@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 import redis as redis_lib
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
@@ -105,3 +105,98 @@ def get_pipeline_stats(db: Session = Depends(get_db)) -> dict:
             for date_str, sources in sorted(stats_by_date.items())
         ],
     }
+
+
+@router.get("/prices")
+def get_prices(
+    region: str = Query(..., description="Two-letter US state code, e.g. IL"),
+    fuel_type: str = Query(..., description="'electricity' or 'natural_gas'"),
+    months: int = Query(6, ge=1, le=24, description="Look-back window in months"),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Return price history for a region + fuel type over the last N months.
+
+    Only returns rows with normalized units ($/kWh or $/MMBtu) to avoid
+    duplicate entries from raw-unit data.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
+    cutoff_period = cutoff.strftime("%Y-%m")
+
+    rows = (
+        db.query(PriceSnapshot)
+        .filter(
+            PriceSnapshot.region == region.upper(),
+            PriceSnapshot.fuel_type == fuel_type,
+            PriceSnapshot.unit.in_(["$/kWh", "$/MMBtu"]),
+            PriceSnapshot.period >= cutoff_period,
+        )
+        .order_by(PriceSnapshot.period.asc())
+        .all()
+    )
+
+    return [
+        {
+            "period": r.period,
+            "price": float(r.price) if r.price is not None else None,
+            "unit": r.unit,
+            "source": r.source,
+            "region": r.region,
+            "fuel_type": r.fuel_type.value if hasattr(r.fuel_type, "value") else str(r.fuel_type),
+        }
+        for r in rows
+    ]
+
+
+
+SOURCE_URLS = {
+    "EIA": "https://www.eia.gov/",
+    "IL_PUC": "https://www.icc.illinois.gov/",
+    "TX_PUC": "https://www.puc.texas.gov/",
+    "OH_PUC": "https://puco.ohio.gov/",
+}
+
+@router.get("/prices/latest")
+def get_latest_prices(
+    region: str = Query(..., description="Two-letter US state code, e.g. IL"),
+    limit: int = Query(100, ge=1, le=1000, description="Max number of rows to return"),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Return the most recently fetched price snapshots for a given region."""
+    rows = (
+        db.query(PriceSnapshot)
+        .filter(PriceSnapshot.region == region.upper())
+        .order_by(PriceSnapshot.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for r in rows:
+        source_url = SOURCE_URLS.get(
+            r.source, f"https://www.google.com/search?q={r.source}"
+        )
+        result.append(
+            {
+                "timestamp": r.created_at.isoformat() if r.created_at else None,
+                "region": r.region,
+                "fuel_type": r.fuel_type.value if hasattr(r.fuel_type, "value") else str(r.fuel_type),
+                "price": float(r.price) if r.price is not None else None,
+                "unit": r.unit,
+                "source": r.source,
+                "source_url": source_url,
+            }
+        )
+    return result
+
+
+@router.get("/regions")
+def get_regions(db: Session = Depends(get_db)) -> list[str]:
+    """Return a sorted list of all distinct regions in the price_snapshots table."""
+    rows = (
+        db.query(PriceSnapshot.region)
+        .distinct()
+        .order_by(PriceSnapshot.region.asc())
+        .all()
+    )
+    return [r.region for r in rows]
+

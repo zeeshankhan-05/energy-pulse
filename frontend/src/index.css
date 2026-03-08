@@ -133,3 +133,22 @@ a:hover {
 .animate-fade-in {
   animation: fade-in 0.4s ease-out both;
 }
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(to right,
+      var(--color-bg-card) 4%,
+      var(--color-border) 25%,
+      var(--color-bg-card) 36%);
+  background-size: 1000px 100%;
+}
