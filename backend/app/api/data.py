@@ -120,6 +120,16 @@ def get_prices(
     duplicate entries from raw-unit data. If fuel_type is omitted, all fuel
     types are returned.
     """
+    cache_key = f"cache:prices:{region}:{fuel_type}:{months}"
+    try:
+        r = _redis_client()
+        cached = r.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception as e:
+        logger.warning("Redis cache error: %s", e)
+        r = None
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
     cutoff_period = cutoff.strftime("%Y-%m")
 
@@ -135,17 +145,25 @@ def get_prices(
         q = q.filter(PriceSnapshot.fuel_type == fuel_type)
     rows = q.order_by(PriceSnapshot.period.asc()).all()
 
-    return [
+    result = [
         {
-            "period": r.period,
-            "price": float(r.price) if r.price is not None else None,
-            "unit": r.unit,
-            "source": r.source,
-            "region": r.region,
-            "fuel_type": r.fuel_type.value if hasattr(r.fuel_type, "value") else str(r.fuel_type),
+            "period": row.period,
+            "price": float(row.price) if row.price is not None else None,
+            "unit": row.unit,
+            "source": row.source,
+            "region": row.region,
+            "fuel_type": row.fuel_type.value if hasattr(row.fuel_type, "value") else str(row.fuel_type),
         }
-        for r in rows
+        for row in rows
     ]
+    
+    try:
+        if r:
+            r.setex(cache_key, 1800, json.dumps(result))
+    except Exception as e:
+        logger.warning("Redis cache set error: %s", e)
+
+    return result
 
 
 
@@ -163,6 +181,16 @@ def get_latest_prices(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     """Return the most recently fetched price snapshots for a given region."""
+    cache_key = f"cache:prices:latest:{region}:{limit}"
+    try:
+        r = _redis_client()
+        cached = r.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception as e:
+        logger.warning("Redis cache error: %s", e)
+        r = None
+
     rows = (
         db.query(PriceSnapshot)
         .filter(PriceSnapshot.region == region.upper())
@@ -172,32 +200,57 @@ def get_latest_prices(
     )
 
     result = []
-    for r in rows:
+    for row in rows:
         source_url = SOURCE_URLS.get(
-            r.source, f"https://www.google.com/search?q={r.source}"
+            row.source, f"https://www.google.com/search?q={row.source}"
         )
         result.append(
             {
-                "timestamp": r.created_at.isoformat() if r.created_at else None,
-                "region": r.region,
-                "fuel_type": r.fuel_type.value if hasattr(r.fuel_type, "value") else str(r.fuel_type),
-                "price": float(r.price) if r.price is not None else None,
-                "unit": r.unit,
-                "source": r.source,
+                "timestamp": row.created_at.isoformat() if row.created_at else None,
+                "region": row.region,
+                "fuel_type": row.fuel_type.value if hasattr(row.fuel_type, "value") else str(row.fuel_type),
+                "price": float(row.price) if row.price is not None else None,
+                "unit": row.unit,
+                "source": row.source,
                 "source_url": source_url,
             }
         )
+
+    try:
+        if r:
+            r.setex(cache_key, 1800, json.dumps(result))
+    except Exception as e:
+        logger.warning("Redis cache set error: %s", e)
+
     return result
 
 
 @router.get("/regions")
 def get_regions(db: Session = Depends(get_db)) -> list[str]:
     """Return a sorted list of all distinct regions in the price_snapshots table."""
+    cache_key = "cache:regions"
+    try:
+        r = _redis_client()
+        cached = r.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception as e:
+        logger.warning("Redis cache error: %s", e)
+        r = None
+
     rows = (
         db.query(PriceSnapshot.region)
         .distinct()
         .order_by(PriceSnapshot.region.asc())
         .all()
     )
-    return [r.region for r in rows]
+    result = [row.region for row in rows]
+    
+    try:
+        if r:
+            r.setex(cache_key, 3600, json.dumps(result))
+    except Exception as e:
+        logger.warning("Redis cache set error: %s", e)
+        
+    return result
 

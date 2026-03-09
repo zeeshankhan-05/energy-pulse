@@ -1,6 +1,6 @@
 # EnergyPulse
 
-![EnergyPulse Dashboard Screenshot](https://dvzc65cpn8cgf.cloudfront.net/placeholder-screenshot.jpg)
+![EnergyPulse Dashboard Screenshot](./screenshot.png)
 
 **Live Demo:** [https://dvzc65cpn8cgf.cloudfront.net](https://dvzc65cpn8cgf.cloudfront.net)
 
@@ -23,7 +23,7 @@ graph TD
     FastAPI <--> DB[(PostgreSQL)]
     FastAPI <--> Redis[(Redis Cache/Broker)]
     
-    CeleryBeat[Celery Beat Scheduler] -->|Hourly Trigger| Redis
+    CeleryBeat[Celery Beat Scheduler] -->|Every 6 Hours Trigger| Redis
     Redis --> CeleryWorker[Celery Worker]
     
     CeleryWorker -->|Read/Write| DB
@@ -37,7 +37,7 @@ graph TD
 **Backend**
 *   **Python 3.10 & FastAPI:** Asynchronous REST API serving high-throughput data requests.
 *   **SQLAlchemy 2.0 & Alembic:** Database ORM utilizing async sessions (`AsyncSession` + `run_sync` pattern) and structured schema migrations.
-*   **Celery & Redis:** Background task queue and scheduler (`celery beat`) for automated hourly ingestion and alert jobs.
+*   **Celery & Redis:** Background task queue and scheduler (`celery beat`) for automated ingestion (every 6 hours) and alert jobs.
 *   **PostgreSQL:** Persistent relational data store.
 *   **BeautifulSoup 4 & Playwright:** Automated web scraping for dynamic state Public Utility Commission (PUC) sites and EIA Open Data API integration.
 *   **Anthropic Claude API:** Generates contextual AI market summaries based on price fluctuations.

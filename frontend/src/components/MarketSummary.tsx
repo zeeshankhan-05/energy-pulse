@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Sparkles, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
 
 import { fetchSummary } from "../api/api";
 import type { MarketSummary } from "../api/api";
@@ -74,11 +74,7 @@ export default function MarketSummaryCard({ region }: MarketSummaryProps) {
             {summary!.summary_text}
           </p>
           
-          {/* Sparkle badge */}
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg 
-                          bg-accent/10 text-accent shrink-0">
-            <Sparkles className="w-4 h-4" />
-          </div>
+
         </div>
 
         <div className="flex items-center gap-3">
