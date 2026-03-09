@@ -1,6 +1,6 @@
 # EnergyPulse
 
-![EnergyPulse Dashboard Screenshot](./screenshot.png)
+![EnergyPulse Dashboard Screenshot](./Energy%20Pulse%20Dashboard%20Screenshot.png)
 
 **Live Demo:** [https://dvzc65cpn8cgf.cloudfront.net](https://dvzc65cpn8cgf.cloudfront.net)
 
@@ -100,7 +100,3 @@ The FastAPI backend provides several key routes for data retrieval:
 The production deployment runs on an AWS EC2 `t3.micro` instance using Ubuntu 24.04.
 Container images are built locally via multi-stage Dockerfiles (`linux/amd64` architecture) and pushed to AWS ECR. 
 The live environment pulls the latest images and runs them using `docker-compose.prod.yml`, ensuring identical behavior between local and production environments, with Nginx proxying requests from AWS CloudFront.
-
----
-
-*Built for portfolio demonstration. This project highlights proficiency in Python web scraping, async APIs, containerized deployment, and AI integration.*
