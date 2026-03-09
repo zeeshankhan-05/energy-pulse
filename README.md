@@ -57,7 +57,7 @@ graph TD
 ## Features
 
 *   **Real-time Data Ingestion:** Scrapes electricity and natural gas prices via APIs and headless browsers, tracking 135+ price snapshots.
-*   **Extensive Historical Data:** Maintains 24 months of electricity prices (Jan 2024 - Dec 2025) and 3 months of natural gas prices.
+*   **Extensive Historical Data:** Visualizes up to 12 months of electricity and natural gas price trends.
 *   **Anomaly Detection:** Statistical models evaluate price movements to flag abnormal market behaviors automatically.
 *   **AI-Generated Market Summaries:** Summarizes complex pricing trends into human-readable insights using LLMs.
 *   **Automated Alerting:** Dispatches real-time notifications via email (SendGrid) and Slack when anomalies are detected.
