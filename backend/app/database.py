@@ -5,8 +5,12 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from app.config import settings
 
+sync_url = settings.database_url \
+    .replace("postgresql+asyncpg://", "postgresql+psycopg2://") \
+    .replace("postgresql://", "postgresql+psycopg2://")
+
 engine = create_engine(
-    settings.database_url,
+    sync_url,
     pool_pre_ping=True,
 )
 

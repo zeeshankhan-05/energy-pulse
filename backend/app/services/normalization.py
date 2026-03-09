@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 import redis as redis_lib
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -194,19 +195,27 @@ def validate_record(record: dict) -> tuple[bool, str]:
 def deduplicate_records(records: list[dict], db: Session) -> list[dict]:
     """Filter *records* to those not already stored in price_snapshots.
 
-    Queries the DB for each (source, region, fuel_type, period) combination
-    present in *records* and returns only the new ones.
+    Two-pass deduplication:
+      1. Within-batch: keep only the last record seen per
+         (source, region, fuel_type, period) key, discarding earlier duplicates
+         in the same batch that would cause a UniqueViolation on bulk insert.
+      2. Against DB: drop any key already present in price_snapshots.
 
     Logs: "Deduplication: {total} incoming, {dupes} duplicates skipped, {new} new records"
     """
     if not records:
         return []
 
-    existing: set[tuple] = set()
+    # Pass 1 — within-batch deduplication (last-write-wins within the batch)
+    seen: dict[tuple, dict] = {}
     for rec in records:
         key = (rec.get("source"), rec.get("region"), rec.get("fuel_type"), rec.get("period"))
-        if key in existing:
-            continue  # already flagged as duplicate within this batch
+        seen[key] = rec  # overwrite keeps the last occurrence
+    batch_unique = list(seen.values())
+
+    # Pass 2 — filter out keys already in the DB
+    db_existing: set[tuple] = set()
+    for key in seen:
         match = (
             db.query(PriceSnapshot)
             .filter_by(
@@ -218,12 +227,12 @@ def deduplicate_records(records: list[dict], db: Session) -> list[dict]:
             .first()
         )
         if match:
-            existing.add(key)
+            db_existing.add(key)
 
     new_records = [
-        r for r in records
+        r for r in batch_unique
         if (r.get("source"), r.get("region"), r.get("fuel_type"), r.get("period"))
-        not in existing
+        not in db_existing
     ]
 
     dupes = len(records) - len(new_records)
@@ -353,24 +362,34 @@ def normalize_pipeline(raw_records: list[dict], db: Session) -> dict:
     new_records = deduplicate_records(valid_normalized, db)
     duplicates = len(valid_normalized) - len(new_records)
 
-    # Step 5 — bulk insert
+    # Step 5 — bulk insert with ON CONFLICT DO NOTHING for idempotency.
+    # Using a PostgreSQL INSERT ... ON CONFLICT DO NOTHING targeted at the
+    # unique constraint means re-running seed or concurrent tasks can never
+    # raise a UniqueViolationError — conflicting rows are silently skipped.
     inserted = 0
     if new_records:
-        snapshots = [
-            PriceSnapshot(
-                source=r["source"],
-                region=r["region"],
-                fuel_type=r["fuel_type"],
-                price=r["price"],
-                unit=r["unit"],
-                period=r["period"],
-                raw_data=r.get("raw_data"),
-            )
+        rows = [
+            {
+                "source":    r["source"],
+                "region":    r["region"],
+                "fuel_type": r["fuel_type"],
+                "price":     r["price"],
+                "unit":      r["unit"],
+                "period":    r["period"],
+                "raw_data":  r.get("raw_data"),
+            }
             for r in new_records
         ]
-        db.bulk_save_objects(snapshots)
+        stmt = (
+            pg_insert(PriceSnapshot)
+            .values(rows)
+            .on_conflict_do_nothing(
+                constraint="uq_price_snapshot_source_region_fuel_period"
+            )
+        )
+        result = db.execute(stmt)
         db.commit()
-        inserted = len(snapshots)
+        inserted = result.rowcount
         logger.info("normalize_pipeline: inserted %d new records", inserted)
 
     summary = {

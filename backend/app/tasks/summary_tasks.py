@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models.price_snapshot import PriceSnapshot
 from app.services.summary_service import generate_summary, should_regenerate
+from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ async def _async_refresh_all():
         logger.error(f"Failed during _async_refresh_all: {e}")
 
 
+@celery_app.task(name="app.tasks.summary_tasks.refresh_all_summaries")
 def refresh_all_summaries():
     """
     Celery task entrypoint.

@@ -110,29 +110,30 @@ def get_pipeline_stats(db: Session = Depends(get_db)) -> dict:
 @router.get("/prices")
 def get_prices(
     region: str = Query(..., description="Two-letter US state code, e.g. IL"),
-    fuel_type: str = Query(..., description="'electricity' or 'natural_gas'"),
+    fuel_type: str | None = Query(None, description="'electricity' or 'natural_gas' — omit to return all fuel types"),
     months: int = Query(6, ge=1, le=24, description="Look-back window in months"),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    """Return price history for a region + fuel type over the last N months.
+    """Return price history for a region over the last N months.
 
     Only returns rows with normalized units ($/kWh or $/MMBtu) to avoid
-    duplicate entries from raw-unit data.
+    duplicate entries from raw-unit data. If fuel_type is omitted, all fuel
+    types are returned.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
     cutoff_period = cutoff.strftime("%Y-%m")
 
-    rows = (
+    q = (
         db.query(PriceSnapshot)
         .filter(
             PriceSnapshot.region == region.upper(),
-            PriceSnapshot.fuel_type == fuel_type,
             PriceSnapshot.unit.in_(["$/kWh", "$/MMBtu"]),
             PriceSnapshot.period >= cutoff_period,
         )
-        .order_by(PriceSnapshot.period.asc())
-        .all()
     )
+    if fuel_type is not None:
+        q = q.filter(PriceSnapshot.fuel_type == fuel_type)
+    rows = q.order_by(PriceSnapshot.period.asc()).all()
 
     return [
         {

@@ -29,8 +29,8 @@ class EIAClient:
     # Public methods
     # ------------------------------------------------------------------
 
-    def get_electricity_retail_prices(self, state_code: str) -> list[dict]:
-        """Return up to 24 months of residential electricity retail prices for *state_code*.
+    def get_electricity_retail_prices(self, state_code: str, length: int = 24) -> list[dict]:
+        """Return up to *length* months of residential electricity retail prices for *state_code*.
 
         Each dict has keys: period, state, price (float | None), units.
         """
@@ -42,7 +42,7 @@ class EIAClient:
             ("facets[stateid][]", state_code.upper()),
             ("sort[0][column]", "period"),
             ("sort[0][direction]", "desc"),
-            ("length", "24"),
+            ("length", str(length)),
         ]
         raw = self._request_with_retry(_ELECTRICITY_URL, params, label=f"electricity/{state_code}")
         data: list[dict] = raw.get("response", {}).get("data", [])
@@ -57,8 +57,8 @@ class EIAClient:
             for item in data
         ]
 
-    def get_natural_gas_prices(self, state_code: str) -> list[dict]:
-        """Return up to 24 months of residential natural gas prices for *state_code*.
+    def get_natural_gas_prices(self, state_code: str, length: int = 24) -> list[dict]:
+        """Return up to *length* months of residential natural gas prices for *state_code*.
 
         EIA uses ``duoarea`` codes of the form ``S{STATE}`` (e.g. ``SIL``).
         Each dict has keys: period, state, price (float | None), units.
@@ -71,7 +71,7 @@ class EIAClient:
             ("facets[duoarea][]", duoarea),
             ("sort[0][column]", "period"),
             ("sort[0][direction]", "desc"),
-            ("length", "24"),
+            ("length", str(length)),
         ]
         raw = self._request_with_retry(_NATURAL_GAS_URL, params, label=f"natural_gas/{state_code}")
         data: list[dict] = raw.get("response", {}).get("data", [])
@@ -87,8 +87,11 @@ class EIAClient:
             for item in data
         ]
 
-    def fetch_all_states(self, states: list[str] | None = None) -> list[dict]:
+    def fetch_all_states(self, states: list[str] | None = None, length: int = 24) -> list[dict]:
         """Fetch electricity + natural gas prices for every state in *states*.
+
+        *length* controls how many monthly records are requested from the EIA API
+        per state/fuel-type combination (passed directly as the ``length`` query param).
 
         Returns a combined, normalised list.  Each record gains a ``fuel_type``
         field set to ``"electricity"`` or ``"natural_gas"``.
@@ -103,7 +106,7 @@ class EIAClient:
                 ("natural_gas", self.get_natural_gas_prices),
             ):
                 try:
-                    records = fetcher(state)
+                    records = fetcher(state, length=length)
                     for rec in records:
                         rec["fuel_type"] = fuel_type
                     combined.extend(records)

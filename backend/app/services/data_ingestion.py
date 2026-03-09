@@ -17,8 +17,14 @@ def ingest_eia_data(
     db: Session,
     states: list[str] | None = None,
     client: EIAClient | None = None,
+    months: int = 24,
 ) -> int:
     """Fetch EIA prices for *states* and persist them via normalize_pipeline.
+
+    *months* is passed to the EIA client as the ``length`` query parameter,
+    controlling how many monthly records are fetched per state/fuel-type.
+    Defaults to 24 (two years) for scheduled runs; pass a smaller value (e.g. 2)
+    for quick seed runs.
 
     EIAClient returns records with keys: period, state, price, units, fuel_type.
     These are remapped to the pipeline schema (region, unit, source) before being
@@ -32,7 +38,7 @@ def ingest_eia_data(
     if states is None:
         states = DEFAULT_STATES
 
-    raw = client.fetch_all_states(states)
+    raw = client.fetch_all_states(states, length=months)
 
     # Remap EIAClient field names → pipeline schema field names
     pipeline_records: list[dict] = []

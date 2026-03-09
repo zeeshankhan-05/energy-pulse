@@ -2,7 +2,10 @@
  * EnergyPulse API client — typed fetch wrappers for the FastAPI backend.
  */
 
-const API_BASE = "http://localhost:8000";
+// In production (Docker/nginx), API_BASE is empty so fetch("/api/...") is a
+// relative request that nginx intercepts and proxies to http://app:8000.
+// For local dev, set VITE_API_BASE=http://localhost:8000 in .env.local.
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 // ---------------------------------------------------------------------------
 // Types — Prices

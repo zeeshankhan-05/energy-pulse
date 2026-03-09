@@ -1,0 +1,97 @@
+services:
+
+  # ─── Backend API ───────────────────────────────────────────────────────────
+  app:
+    image: ${ECR_BACKEND_URI:-energypulse-backend:latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      EIA_API_KEY: ${EIA_API_KEY}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # No source volume mounts — image is built with code baked in
+
+  # ─── Celery Worker ─────────────────────────────────────────────────────────
+  # NOTE: app.tasks.celery_app does not currently exist in the codebase.
+  # Only app/tasks/summary_tasks.py exists and it has no Celery app instance.
+  # Before deploying worker/beat, create app/tasks/celery_app.py with a
+  # Celery(...) instance and update the command below accordingly.
+  worker:
+    image: ${ECR_BACKEND_URI:-energypulse-backend:latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      EIA_API_KEY: ${EIA_API_KEY}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+  # ─── Celery Beat Scheduler ─────────────────────────────────────────────────
+  beat:
+    image: ${ECR_BACKEND_URI:-energypulse-backend:latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    command: celery -A app.tasks.celery_app beat --loglevel=info --scheduler celery.beat.PersistentScheduler --schedule /tmp/celerybeat-schedule
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      EIA_API_KEY: ${EIA_API_KEY}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+  # ─── Frontend (nginx) ──────────────────────────────────────────────────────
+  frontend:
+    image: ${ECR_FRONTEND_URI:-energypulse-frontend:latest}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    depends_on:
+      - app
+
+  # ─── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: energypulse
+    # No externally exposed ports
+
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # No externally exposed ports
+
+volumes:
+  postgres_data:

@@ -1,0 +1,51 @@
+# ─── Stage 1: Builder ────────────────────────────────────────────────────────
+FROM python:3.10-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    build-essential \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN python -m venv /opt/venv
+RUN /opt/venv/bin/pip install --upgrade pip && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+
+# gunicorn is required at runtime but is NOT in requirements.txt — add it before deploying.
+# Either add `gunicorn==22.0.0` to requirements.txt or install it here explicitly:
+RUN /opt/venv/bin/pip install --no-cache-dir gunicorn==22.0.0
+
+# ─── Stage 2: Final ──────────────────────────────────────────────────────────
+FROM python:3.10-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copy virtualenv from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Create non-root user
+RUN groupadd --system appuser && useradd --system --gid appuser appuser
+
+WORKDIR /app
+
+# Copy only necessary application files
+COPY --chown=appuser:appuser app/ ./app/
+COPY --chown=appuser:appuser alembic/ ./alembic/
+COPY --chown=appuser:appuser alembic.ini ./alembic.ini
+# NOTE: The FastAPI app instance is defined as `app` in main.py at the project root,
+# so gunicorn is invoked as `main:app`. If you ever move the app to app/main.py,
+# change the CMD below to use `app.main:app` instead.
+COPY --chown=appuser:appuser main.py ./main.py
+
+USER appuser
+
+EXPOSE 8000
+
+CMD ["gunicorn", "main:app", \
+     "-w", "4", \
+     "-k", "uvicorn.workers.UvicornWorker", \
+     "-b", "0.0.0.0:8000"]

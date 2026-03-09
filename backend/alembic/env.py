@@ -24,8 +24,11 @@ from app.models.base import Base  # noqa: E402
 # ---------------------------------------------------------------------------
 config = context.config
 
-# Override the URL from settings (ignores the commented-out value in alembic.ini)
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Override the URL from settings, forcing a sync psycopg2 driver.
+# settings.database_url uses postgresql+asyncpg:// for the async app runtime,
+# but Alembic requires a sync connection — asyncpg triggers MissingGreenlet errors.
+_sync_url = settings.database_url.replace("+asyncpg", "+psycopg2", 1)
+config.set_main_option("sqlalchemy.url", _sync_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

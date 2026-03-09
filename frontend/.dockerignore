@@ -1,3 +1,6 @@
 node_modules
 dist
 .vite
+# Local dev env vars must never be baked into production builds
+.env.local
+.env.*.local

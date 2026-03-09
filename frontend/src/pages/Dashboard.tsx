@@ -9,7 +9,6 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
-import type { TooltipProps } from "recharts";
 import { RefreshCw } from "lucide-react";
 
 import { fetchPrices, fetchRegions } from "../api/api";
@@ -20,6 +19,12 @@ import DataTable from "../components/DataTable";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
+// recharts v3 removed `payload` from TooltipProps — use a local interface instead
+interface TooltipCustomProps {
+  active?: boolean;
+  payload?: Array<{ payload: PricePoint }>;
+}
 
 type FuelType = "electricity" | "natural_gas";
 type Months = 3 | 6 | 12;
@@ -47,7 +52,7 @@ function formatPeriod(period: string): string {
 // Custom Tooltip
 // ---------------------------------------------------------------------------
 
-function PriceTooltip({ active, payload }: TooltipProps<number, string>) {
+function PriceTooltip({ active, payload }: TooltipCustomProps) {
   if (!active || !payload?.length) return null;
   const data = payload[0].payload as PricePoint;
   return (
