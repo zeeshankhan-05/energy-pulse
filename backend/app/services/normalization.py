@@ -345,6 +345,8 @@ def normalize_pipeline(raw_records: list[dict], db: Session) -> dict:
             "price": norm_price,
             "unit": norm_unit,
             "period": norm_period,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
         })
 
     # Persist rejected records to Redis for inspection
@@ -376,6 +378,8 @@ def normalize_pipeline(raw_records: list[dict], db: Session) -> dict:
                 "price":     r["price"],
                 "unit":      r["unit"],
                 "period":    r["period"],
+                "created_at": r.get("created_at"),
+                "updated_at": r.get("updated_at"),
                 "raw_data":  r.get("raw_data"),
             }
             for r in new_records
@@ -384,7 +388,7 @@ def normalize_pipeline(raw_records: list[dict], db: Session) -> dict:
             pg_insert(PriceSnapshot)
             .values(rows)
             .on_conflict_do_nothing(
-                constraint="uq_price_snapshot_source_region_fuel_period"
+                index_elements=["source", "region", "fuel_type", "period"]
             )
         )
         result = db.execute(stmt)

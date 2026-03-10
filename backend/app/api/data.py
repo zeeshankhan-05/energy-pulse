@@ -55,6 +55,7 @@ def get_pipeline_stats(db: Session = Depends(get_db)) -> dict:
     # Redis: read pipeline_stats entries for the last 7 days
     # ------------------------------------------------------------------
     reject_counts: dict[tuple, int] = defaultdict(int)
+    duplicate_counts: dict[tuple, int] = defaultdict(int)
     reason_buckets: dict[tuple, list[str]] = defaultdict(list)
 
     try:
@@ -71,6 +72,7 @@ def get_pipeline_stats(db: Session = Depends(get_db)) -> dict:
             for src in entry.get("sources") or ["unknown"]:
                 key = (entry_date, src)
                 reject_counts[key] += entry.get("rejected", 0)
+                duplicate_counts[key] += entry.get("duplicates", 0)
                 reason_buckets[key].extend(entry.get("rejected_reasons", []))
     except Exception as exc:
         logger.warning("Could not read pipeline_stats from Redis: %s", exc)
@@ -78,7 +80,7 @@ def get_pipeline_stats(db: Session = Depends(get_db)) -> dict:
     # ------------------------------------------------------------------
     # Merge into a unified list of daily-source stats
     # ------------------------------------------------------------------
-    all_keys: set[tuple] = set(insert_counts) | set(reject_counts)
+    all_keys: set[tuple] = set(insert_counts) | set(reject_counts) | set(duplicate_counts)
     stats_by_date: dict[str, list[dict]] = defaultdict(list)
 
     for date_str, source in sorted(all_keys):
@@ -94,6 +96,7 @@ def get_pipeline_stats(db: Session = Depends(get_db)) -> dict:
             "source": source,
             "records_inserted": insert_counts.get(key, 0),
             "records_rejected": reject_counts.get(key, 0),
+            "records_duplicates": duplicate_counts.get(key, 0),
             "top_rejection_reasons": top_reasons,
         })
 

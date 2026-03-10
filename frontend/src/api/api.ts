@@ -165,6 +165,33 @@ export async function fetchSummary(region: string): Promise<MarketSummary | null
 }
 
 // ---------------------------------------------------------------------------
+// Pipeline Stats endpoint
+// ---------------------------------------------------------------------------
+
+export interface PipelineStatSource {
+  source: string;
+  records_inserted: number;
+  records_rejected: number;
+  records_duplicates: number;
+  top_rejection_reasons: string[];
+}
+
+export interface PipelineStatsDaily {
+  date: string;
+  sources: PipelineStatSource[];
+}
+
+export interface PipelineStatsResponse {
+  period_days: number;
+  from_date: string;
+  daily_stats: PipelineStatsDaily[];
+}
+
+export async function fetchPipelineStats(): Promise<PipelineStatsResponse> {
+  return apiFetch<PipelineStatsResponse>("/api/data/pipeline-stats");
+}
+
+// ---------------------------------------------------------------------------
 // Latest Prices endpoint (Data Table)
 // ---------------------------------------------------------------------------
 

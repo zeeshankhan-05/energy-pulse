@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 _ELECTRICITY_URL = "https://api.eia.gov/v2/electricity/retail-sales/data/"
 _NATURAL_GAS_URL = "https://api.eia.gov/v2/natural-gas/pri/sum/data/"
 
-DEFAULT_STATES = ["IL", "TX", "OH", "CA", "NY"]
+DEFAULT_STATES = ["IL", "TX", "OH", "CA", "NY", "AZ"]
 
 
 class EIAClient:
