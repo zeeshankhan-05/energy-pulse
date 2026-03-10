@@ -61,7 +61,7 @@ graph TD
 *   **Anomaly Detection:** Statistical models evaluate price movements to flag abnormal market behaviors automatically.
 *   **AI-Generated Market Summaries:** Summarizes complex pricing trends into human-readable insights using LLMs.
 *   **Automated Alerting:** Dispatches real-time notifications via email (SendGrid) and Slack when anomalies are detected.
-*   **Resilient Data Pipeline:** Uses scheduled background workers and `ON CONFLICT DO NOTHING` patterns to ensure idempotent insert behavior and deduplication.
+*   **Resilient Data Pipeline & Monitoring:** Uses scheduled background workers and `ON CONFLICT DO NOTHING` patterns to ensure idempotent insert behavior and deduplication, monitored via a user-friendly Data Pipeline Activity dashboard table.
 
 ## Local Development
 
@@ -90,7 +90,7 @@ The project is fully containerized for a smooth local development experience.
 
 The FastAPI backend provides several key routes for data retrieval:
 
-*   `GET /api/data/pipeline-stats`: Retrieves ingestion statistics over the last 7 days (records inserted, rejected, top rejection reasons).
+*   `GET /api/data/pipeline-stats`: Retrieves ingestion statistics over the last 7 days (records inserted, rejected, duplicates skipped, and top rejection reasons).
 *   `GET /api/data/prices`: Fetches historical price data (filtered by region, fuel type, and time window).
 *   `GET /api/data/prices/latest`: Returns the most recently fetched price snapshots for a specified region.
 *   `GET /api/data/regions`: Lists all distinct tracked regions.
