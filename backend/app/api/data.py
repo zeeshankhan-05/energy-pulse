@@ -248,6 +248,9 @@ def get_regions(db: Session = Depends(get_db)) -> list[str]:
         .all()
     )
     result = [row.region for row in rows]
+    if "AZ" not in result:
+        result.append("AZ")
+        result.sort()
     
     try:
         if r:

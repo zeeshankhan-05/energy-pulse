@@ -296,7 +296,7 @@ export default function Dashboard() {
                          text-sm font-semibold focus:outline-none focus:border-accent
                          appearance-none cursor-pointer min-w-32"
             >
-              {regions.map((r) => (
+              {Array.from(new Set([...regions, "AZ"])).sort().map((r) => (
                 <option key={r} value={r}>
                   {r}
                 </option>
