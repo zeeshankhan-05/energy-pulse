@@ -2,7 +2,7 @@
 
 ![EnergyPulse Dashboard Screenshot](./Energy%20Pulse%20Dashboard%20Screenshot.png)
 
-**Live Demo:** [https://dvzc65cpn8cgf.cloudfront.net](https://dvzc65cpn8cgf.cloudfront.net)
+**Website:** [https://dvzc65cpn8cgf.cloudfront.net](https://dvzc65cpn8cgf.cloudfront.net)
 
 ## Overview
 
